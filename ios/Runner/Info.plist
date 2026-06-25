@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+<string>La app necesita usar la cámara para tomar fotos de subastas.</string>
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>La app necesita guardar las imágenes editadas en tu galería.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>La app necesita acceso a la galería para guardar imágenes de subastas.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

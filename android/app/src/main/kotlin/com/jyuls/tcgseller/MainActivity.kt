@@ -1,4 +1,4 @@
-package com.example.tcg_seller_app
+package com.jyuls.tcgseller
 
 import io.flutter.embedding.android.FlutterActivity
 

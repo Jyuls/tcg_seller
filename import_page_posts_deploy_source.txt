@@ -1,0 +1,269 @@
+﻿import { adminClient, authenticatedUser, graph, pageToken, response } from '../_shared/core.ts'
+
+function validAmount(message: string) {
+  const match = message.match(/^\s*\$?\s*([0-9]+)\s*$/)
+  if (!match) return null
+  const amount = Number(match[1])
+  return Number.isSafeInteger(amount) ? amount : null
+}
+
+function attachmentEntries(post: Record<string, any>) {
+  const attachments = post.attachments?.data ?? []
+  const nested = attachments.flatMap((entry: Record<string, any>) => entry.subattachments?.data ?? [])
+  const source = nested.length ? nested : attachments
+  return source
+    .map((entry: Record<string, any>) => ({
+      id: entry.target?.id as string | undefined,
+      imageUrl: entry.media?.image?.src as string | undefined,
+      type: entry.type as string | undefined,
+    }))
+    .filter((entry: { id?: string }) => Boolean(entry.id))
+}
+
+async function fetchPagedEntries(nextUrl: string | undefined) {
+  const rows: { id?: string; imageUrl?: string; type?: string }[] = []
+  let next = nextUrl
+  for (let page = 0; next && page < 20; page++) {
+    const result = await fetch(next)
+    const payload = await result.json()
+    if (!result.ok || payload.error) break
+    rows.push(
+      ...((payload.data ?? [])
+        .map((entry: Record<string, any>) => ({
+          id: entry.target?.id as string | undefined,
+          imageUrl: entry.media?.image?.src as string | undefined,
+          type: entry.type as string | undefined,
+        }))
+        .filter((entry: { id?: string }) => Boolean(entry.id))),
+    )
+    next = payload.paging?.next
+  }
+  return rows
+}
+
+async function allAttachmentEntries(post: Record<string, any>) {
+  const base = attachmentEntries(post)
+  const attachments = post.attachments?.data ?? []
+  const paged: { id?: string; imageUrl?: string; type?: string }[] = []
+  for (const attachment of attachments) {
+    paged.push(...(await fetchPagedEntries(attachment.subattachments?.paging?.next)))
+  }
+  const byId = new Map<string, { id?: string; imageUrl?: string; type?: string }>()
+  for (const entry of [...base, ...paged]) {
+    if (entry.id && !byId.has(entry.id)) byId.set(entry.id, entry)
+  }
+  return [...byId.values()]
+}
+
+function shouldImportPost(post: Record<string, any>, photos: { id?: string }[]) {
+  if (photos.length < 2) return false
+  const message = String(post.message ?? '').toLowerCase()
+  const statusType = String(post.status_type ?? '').toLowerCase()
+  const story = String(post.story ?? '').toLowerCase()
+  const blocked = ['profile', 'perfil', 'cover', 'portada']
+  return !blocked.some((word) => message.includes(word) || statusType.includes(word) || story.includes(word))
+}
+
+async function albumPhotosFromExistingItem(
+  client: ReturnType<typeof adminClient>,
+  publicationId: string,
+  token: string,
+) {
+  const { data: first } = await client
+    .from('publication_items')
+    .select('meta_photo_id')
+    .eq('publication_id', publicationId)
+    .not('meta_photo_id', 'is', null)
+    .order('position')
+    .limit(1)
+    .maybeSingle()
+  if (!first?.meta_photo_id) return []
+  const photo = await graph(`${first.meta_photo_id}?fields=id,album{id,name}`, token).catch(() => null)
+  const albumId = photo?.album?.id
+  if (!albumId) return []
+  const album = await graph(`${albumId}/photos?fields=id,images,created_time,name&limit=100`, token).catch(() => null)
+  const photos = (album?.data ?? []) as Record<string, any>[]
+  return photos
+    .sort((a, b) => new Date(a.created_time as string).getTime() - new Date(b.created_time as string).getTime())
+    .map((entry) => ({
+      id: entry.id as string,
+      imageUrl: (entry.images as Record<string, any>[] | undefined)?.[0]?.source as string | undefined,
+    }))
+}
+
+Deno.serve(async (req) => {
+  const client = adminClient()
+  try {
+    const user = await authenticatedUser(req)
+    const { data: pages } = await client
+      .from('facebook_pages')
+      .select('*')
+      .eq('owner_id', user.id)
+      .eq('is_selected', true)
+      .eq('access_status', 'active')
+    let imported = 0
+    let updated = 0
+    let importedItems = 0
+
+    for (const page of pages ?? []) {
+      const token = await pageToken(client, page.id)
+      const { data: settings } = await client.from('app_settings').select().eq('owner_id', user.id).maybeSingle()
+      const durationMinutes = Number(settings?.default_duration_minutes ?? 1440)
+      const startingBid = Number(settings?.default_starting_bid ?? 5)
+      const bidIncrement = Number(settings?.default_bid_increment ?? 5)
+      const feed = await graph(`${page.meta_page_id}/feed?fields=id,message,story,status_type,type,created_time,permalink_url&limit=15`, token)
+
+      for (const post of feed.data ?? []) {
+        const { data: existing } = await client
+          .from('publications')
+          .select('id,status')
+          .eq('owner_id', user.id)
+          .eq('page_id', page.id)
+          .eq('meta_post_id', post.id)
+          .maybeSingle()
+        const startsAt = post.created_time ? new Date(post.created_time) : new Date()
+        const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000)
+        const status = Date.now() < endsAt.getTime() ? 'active' : 'ended'
+        let publicationId = existing?.id as string | undefined
+        let photos = publicationId ? await albumPhotosFromExistingItem(client, publicationId, token) : await allAttachmentEntries(post)
+        if (!shouldImportPost(post, photos)) continue
+        const cover = photos[0].imageUrl ?? `https://graph.facebook.com/v25.0/${photos[0].id}/picture`
+
+        if (!publicationId) {
+          const { data: publication, error } = await client
+            .from('publications')
+            .insert({
+              owner_id: user.id,
+              page_id: page.id,
+              title: 'Subasta importada',
+              body: post.message ?? '',
+              status,
+              starts_at: startsAt.toISOString(),
+              ends_at: endsAt.toISOString(),
+              scheduled_for: startsAt.toISOString(),
+              published_at: startsAt.toISOString(),
+              starting_bid: startingBid,
+              bid_increment: bidIncrement,
+              meta_post_id: post.id,
+              cover_storage_path: cover,
+              last_error: null,
+            })
+            .select('id')
+            .single()
+          if (error) throw error
+          publicationId = publication.id
+          imported++
+        } else if (existing.status !== 'archived') {
+          await client
+            .from('publications')
+            .update({
+              body: post.message ?? '',
+              status: status === 'active' ? 'active' : existing.status,
+              cover_storage_path: cover,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', publicationId)
+          updated++
+        }
+
+        for (let index = 0; index < photos.length; index++) {
+          const photo = photos[index]
+          const imageUrl = photo.imageUrl ?? `https://graph.facebook.com/v25.0/${photo.id}/picture`
+          await client.from('publication_items').upsert(
+            {
+              publication_id: publicationId,
+              position: index,
+              storage_path: imageUrl,
+              meta_photo_id: photo.id,
+              upload_status: 'uploaded',
+              resolution_status: 'open',
+            },
+            { onConflict: 'publication_id,position' },
+          )
+          importedItems++
+        }
+
+        const { data: items } = await client
+          .from('publication_items')
+          .select('id,position,meta_photo_id')
+          .eq('publication_id', publicationId)
+          .order('position')
+        for (const item of items ?? []) {
+          if (!item.meta_photo_id) continue
+          const comments = (await graph(
+            `${item.meta_photo_id}/comments?fields=id,message,from,created_time&limit=100&order=chronological`,
+            token,
+          ).catch(() => ({ data: [] }))).data ?? []
+          for (const raw of comments) {
+            const created = new Date(raw.created_time as string)
+            const amount = validAmount(String(raw.message ?? ''))
+            const beforeClose = created.getTime() < endsAt.getTime()
+            const onGrid = amount !== null && amount >= startingBid && (amount - startingBid) % bidIncrement === 0
+            const isValid = amount !== null && beforeClose && onGrid
+            const rejection = amount === null ? 'format' : !beforeClose ? 'after_close' : !onGrid ? 'minimum_bid' : null
+            const { data: stored, error } = await client
+              .from('meta_comments')
+              .upsert(
+                {
+                  publication_item_id: item.id,
+                  meta_comment_id: raw.id,
+                  author_meta_id: raw.from?.id,
+                  author_name: raw.from?.name,
+                  message: raw.message ?? '',
+                  meta_created_at: created.toISOString(),
+                  raw_payload: raw,
+                },
+                { onConflict: 'meta_comment_id' },
+              )
+              .select()
+              .single()
+            if (error) throw error
+            if (amount !== null) {
+              await client.from('bids').upsert(
+                {
+                  comment_id: stored.id,
+                  publication_item_id: item.id,
+                  amount,
+                  meta_created_at: created.toISOString(),
+                  is_valid: isValid,
+                  rejection_reason: rejection,
+                },
+                { onConflict: 'comment_id' },
+              )
+            }
+          }
+          const { data: highest } = await client
+            .from('bids')
+            .select('comment_id,amount')
+            .eq('publication_item_id', item.id)
+            .eq('is_valid', true)
+            .order('amount', { ascending: false })
+            .order('meta_created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+          await client
+            .from('publication_items')
+            .update({ winning_comment_id: highest?.comment_id ?? null, winning_amount: highest?.amount ?? null })
+            .eq('id', item.id)
+        }
+
+        await client.from('automation_jobs').upsert(
+          {
+            owner_id: user.id,
+            kind: 'close_auction',
+            entity_id: publicationId,
+            run_at: new Date(endsAt.getTime() + 60_000).toISOString(),
+            idempotency_key: `close:${publicationId}`,
+          },
+          { onConflict: 'idempotency_key' },
+        )
+      }
+    }
+
+    return response({ ok: true, imported, updated, imported_items: importedItems })
+  } catch (error) {
+    if (error instanceof Response) return error
+    return response({ error: error instanceof Error ? error.message : String(error) }, 500)
+  }
+})
+
