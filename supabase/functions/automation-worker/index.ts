@@ -13,12 +13,12 @@ type Client = ReturnType<typeof adminClient>
 
 const defaults: Record<string, string> = {
   auction_reminder:
-    'Recordatorio: esta subasta termina a las {horaCierre}. Puja actual: {pujaActual}.',
+    'Esta subasta termina a las {horaCierre}. Puja mas alta: {pujaActual}.',
   auction_reminder_no_bids:
-    'Recordatorio: esta subasta termina a las {horaCierre}. AÃºn sin pujas.',
+    'Esta subasta termina a las {horaCierre}. Aún sin pujas.',
   winner_linked: 'Ganaste esta subasta. Te enviÃ© los detalles por inbox.',
   winner_unlinked:
-    'Ganaste esta subasta con {precioGanador}. Envia inbox para concretar.',
+    'Ganaste esta subasta. Enviame mensaje para confirmar tu pedido.',
   winner_window_closed:
     'Ganaste esta subasta. MÃ¡ndanos un nuevo inbox con el cÃ³digo {codigoConfirmacion} para enviarte los detalles.',
   winner_order_summary:
@@ -32,7 +32,7 @@ function confirmationCode() {
 }
 
 function validAmount(message: string) {
-  const match = message.match(/^\s*\$?\s*([0-9]+)\s*$/)
+  const match = message.match(/^\s*\$?\s*([0-9]+)\s*(?:pesos?|mxn)?\s*$/i)
   if (!match) return null
   const amount = Number(match[1])
   return Number.isSafeInteger(amount) ? amount : null

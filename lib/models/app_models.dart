@@ -218,6 +218,8 @@ class OrderSummary {
   final String? fixedBoothName;
   final String locationHelpText;
   final String deliveryNotes;
+  final int? packingPosition;
+  final DateTime? packedAt;
   final List<Map<String, dynamic>> items;
 
   const OrderSummary({
@@ -235,6 +237,8 @@ class OrderSummary {
     this.fixedBoothName,
     this.locationHelpText = '',
     required this.deliveryNotes,
+    this.packingPosition,
+    this.packedAt,
     required this.items,
   });
   factory OrderSummary.fromJson(Map<String, dynamic> json) => OrderSummary(
@@ -262,6 +266,10 @@ class OrderSummary {
             as String? ??
         '',
     deliveryNotes: json['delivery_notes'] as String? ?? '',
+    packingPosition: json['packing_position'] as int?,
+    packedAt: json['packed_at'] == null
+        ? null
+        : DateTime.parse(json['packed_at'] as String).toLocal(),
     items: List<Map<String, dynamic>>.from(
       json['order_items'] as List<dynamic>? ?? const [],
     ),

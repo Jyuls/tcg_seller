@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/app_state.dart';
@@ -20,38 +20,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   List<Map<String, dynamic>> messageTemplates = [];
   List<Map<String, dynamic>> locations = [];
   static const templateLabels = {
-    'winner_linked': 'Ganador vinculado',
-    'winner_unlinked': 'Ganador sin inbox',
-    'winner_window_closed': 'Ganador con ventana cerrada',
-    'order_confirmation': 'Confirmación de pedido',
-    'delivery_reminder': 'Recordatorio de entrega',
-    'arrival_notice': 'Aviso de llegada',
-    'payment_confirmation': 'Confirmación de pago',
+    'auction_reminder': 'Recordatorio con puja',
+    'auction_reminder_no_bids': 'Recordatorio sin pujas',
+    'winner_unlinked': 'Ganador de subasta',
+    'manual_order_confirmation': 'Confirmación de pedido',
+    'bulk_delivery_reminder': 'Recordatorio de entrega',
+    'bulk_arrival_notice': 'Llegada a Mundo Divertido',
+    'order_delivered': 'Pedido entregado',
   };
   static const defaults = {
-    'winner_linked':
-        '¡Felicidades {cliente}! Ganaste por {precio}. Revisa tu inbox.',
+    'auction_reminder':
+        'Esta subasta termina a las {horaCierre}. Puja mas alta: {pujaActual}.',
+    'auction_reminder_no_bids':
+        'Esta subasta termina a las {horaCierre}. Aún sin pujas.',
     'winner_unlinked':
-        '¡Felicidades {cliente}! Ganaste por {precio}. Envíanos inbox con el código {codigoConfirmacion}.',
-    'winner_window_closed':
-        '¡Felicidades {cliente}! Ganaste por {precio}. Envíanos un nuevo inbox con el código {codigoConfirmacion}.',
-    'order_confirmation':
-        'Tu pedido de {cantidadArticulos} artículo(s) suma {total}.',
-    'delivery_reminder':
-        'Te recordamos tu entrega en {lugarEntrega} el {fechaEntrega}.',
-    'arrival_notice':
-        'Ya llegamos a {lugarEntrega}. Estaremos hasta {horaLimite}.',
-    'payment_confirmation': 'Tu pedido por {total} quedó marcado como pagado.',
+        'Ganaste esta subasta. Enviame mensaje para confirmar tu pedido.',
+    'manual_order_confirmation':
+        'Confirmo tu pedido para este Domingo en Mundo Divertido, el total serian {precio}.',
+    'bulk_delivery_reminder':
+        'Hola {cliente}, te recuerdo que este domingo te entrego tu pedido en Mundo Divertido, en el puesto Tokyo Morningstore. Total: {total}.',
+    'bulk_arrival_notice':
+        'Ya estoy en el puesto Tokyo Morningstore, este puesto NO TIENE NUMERO, se encuentra enfrente del puesto #138, Zona 1.\n\nMe encuentras sentado en una mesa, al entrar tambien puedes preguntar por mi.\n\nVoy vestido asi: {descripcion}. Estare hasta {horaLimite}.',
+    'order_delivered': 'Pedido Entregado',
   };
 
   Future<void> disconnectMeta() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cerrar sesión y desconectar Meta'),
+        title: const Text('Cerrar sesiÃ³n y desconectar Meta'),
         content: const Text(
-          'Se revocará el acceso a Facebook y se eliminarán las credenciales. '
-          'Tus publicaciones, clientes y pedidos se conservarán.',
+          'Se revocarÃ¡ el acceso a Facebook y se eliminarÃ¡n las credenciales. '
+          'Tus publicaciones, clientes y pedidos se conservarÃ¡n.',
         ),
         actions: [
           TextButton(
@@ -136,7 +136,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Configuración guardada')));
+      ).showSnackBar(const SnackBar(content: Text('ConfiguraciÃ³n guardada')));
     }
   }
 
@@ -237,12 +237,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final code = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Probar código de Messenger'),
+        title: const Text('Probar cÃ³digo de Messenger'),
         content: TextField(
           controller: controller,
           textCapitalization: TextCapitalization.characters,
           decoration: const InputDecoration(
-            labelText: 'Código de 6 caracteres',
+            labelText: 'CÃ³digo de 6 caracteres',
             helperText: 'Ejemplo: ABC123',
           ),
         ),
@@ -268,14 +268,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Código reconocido. Conversación: ${result['conversation_id']}',
+            'CÃ³digo reconocido. ConversaciÃ³n: ${result['conversation_id']}',
           ),
         ),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo probar el código: $error')),
+        SnackBar(content: Text('No se pudo probar el cÃ³digo: $error')),
       );
     }
   }
@@ -284,14 +284,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final dark = widget.appState.themeMode == ThemeMode.dark;
     return Scaffold(
-      appBar: AppBar(title: const Text('Configuración')),
+      appBar: AppBar(title: const Text('ConfiguraciÃ³n')),
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(18),
               children: [
                 const SectionTitle(
-                  title: 'Configuración',
+                  title: 'ConfiguraciÃ³n',
                   subtitle: 'Personaliza subastas, entregas y mensajes.',
                 ),
                 const SizedBox(height: 16),
@@ -324,8 +324,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     ? const Icon(Icons.facebook)
                                     : null,
                               ),
-                              title: Text(page?.name ?? 'Sin página conectada'),
-                              subtitle: const Text('Página de Facebook activa'),
+                              title: Text(page?.name ?? 'Sin pÃ¡gina conectada'),
+                              subtitle: const Text('PÃ¡gina de Facebook activa'),
                             ),
                             SizedBox(
                               width: double.infinity,
@@ -342,7 +342,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       )
                                     : const Icon(Icons.logout),
                                 label: const Text(
-                                  'Cerrar sesión y desconectar Meta',
+                                  'Cerrar sesiÃ³n y desconectar Meta',
                                 ),
                               ),
                             ),
@@ -365,7 +365,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Texto de las imágenes',
+                        'Texto de las imÃ¡genes',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -397,7 +397,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         minLines: 8,
                         maxLines: 16,
                         decoration: const InputDecoration(
-                          labelText: 'Plantilla de publicación',
+                          labelText: 'Plantilla de publicaciÃ³n',
                           alignLabelWithHint: true,
                         ),
                       ),
@@ -423,13 +423,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Usa esto sólo en desarrollo: simula que un cliente mandó un inbox con código de subasta.',
+                        'Usa esto sÃ³lo en desarrollo: simula que un cliente mandÃ³ un inbox con cÃ³digo de subasta.',
                       ),
                       const SizedBox(height: 12),
                       FilledButton.tonalIcon(
                         onPressed: testMessengerCode,
                         icon: const Icon(Icons.science_outlined),
-                        label: const Text('Probar código'),
+                        label: const Text('Probar cÃ³digo'),
                       ),
                     ],
                   ),
@@ -501,3 +501,4 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 }
+

@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -21,7 +21,7 @@ class AppRepository {
 
   User get requireUser {
     final user = client.auth.currentUser;
-    if (user == null) throw StateError('No hay una sesión activa.');
+    if (user == null) throw StateError('No hay una sesiÃ³n activa.');
     return user;
   }
 
@@ -52,7 +52,7 @@ class AppRepository {
     final token = client.auth.currentSession?.providerToken;
     if (token == null || token.isEmpty) {
       throw StateError(
-        'La autorización de Meta expiró. Cierra sesión e inicia nuevamente.',
+        'La autorizaciÃ³n de Meta expirÃ³. Cierra sesiÃ³n e inicia nuevamente.',
       );
     }
     await client.functions.invoke(
@@ -162,7 +162,7 @@ class AppRepository {
       throw ArgumentError('La subasta necesita al menos una foto.');
     }
     if (!endsAt.isAfter(startsAt)) {
-      throw ArgumentError('La finalización debe ser posterior al inicio.');
+      throw ArgumentError('La finalizaciÃ³n debe ser posterior al inicio.');
     }
     final ownerId = requireUser.id;
     final id = publicationId ?? const Uuid().v4();
@@ -377,7 +377,13 @@ class AppRepository {
           : order.paymentStatus == 'paid'
           ? 0
           : 1;
-      return rank(a).compareTo(rank(b));
+      final rankCompare = rank(a).compareTo(rank(b));
+      if (rankCompare != 0) return rankCompare;
+      final packingA = a.packingPosition ?? 1 << 30;
+      final packingB = b.packingPosition ?? 1 << 30;
+      final packingCompare = packingA.compareTo(packingB);
+      if (packingCompare != 0) return packingCompare;
+      return b.id.compareTo(a.id);
     });
     return result;
   }
@@ -399,7 +405,47 @@ class AppRepository {
       })
       .eq('id', id);
 
-  Future<void> sendOrderConfirmation(OrderSummary order) async {
+  Future<void> removeOrderItem(Map<String, dynamic> item) async {
+    final itemId = item['id'] as String?;
+    if (itemId == null) throw StateError('El artÃ­culo no tiene ID.');
+    final publicationItemId = item['publication_item_id'] as String?;
+    await client.from('order_items').delete().eq('id', itemId);
+    if (publicationItemId != null && publicationItemId.isNotEmpty) {
+      await client
+          .from('publication_items')
+          .update({'resolution_status': 'review'})
+          .eq('id', publicationItemId);
+    }
+  }
+
+  Future<void> packOrderNext(String id) async {
+    final page = await selectedPage();
+    if (page == null) throw StateError('Selecciona una pÃ¡gina primero.');
+    final rows = await client
+        .from('orders')
+        .select('packing_position')
+        .eq('page_id', page.id)
+        .eq('delivery_status', 'pending')
+        .not('packing_position', 'is', null)
+        .order('packing_position', ascending: false)
+        .limit(1);
+    final list = List<Map<String, dynamic>>.from(rows as List);
+    final last = list.isEmpty ? 0 : list.first['packing_position'] as int? ?? 0;
+    await client
+        .from('orders')
+        .update({
+          'packing_position': last + 1,
+          'packed_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id);
+  }
+
+  Future<void> unpackOrder(String id) => client
+      .from('orders')
+      .update({'packing_position': null, 'packed_at': null})
+      .eq('id', id);
+
+  Future<Map<String, dynamic>> sendOrderConfirmation(OrderSummary order) async {
     final conversation = await client
         .from('conversations')
         .select('id')
@@ -408,7 +454,7 @@ class AppRepository {
         .limit(1)
         .maybeSingle();
     if (conversation == null) {
-      throw StateError('Este cliente no tiene conversación de Messenger.');
+      throw StateError('Este cliente no tiene conversaciÃ³n de Messenger.');
     }
     final photoPaths = order.items
         .map((item) => item['photo_storage_path'])
@@ -444,20 +490,21 @@ class AppRepository {
       final reason = data['reason']?.toString();
       if (reason == 'closed_window') {
         throw StateError(
-          'La ventana de Messenger está cerrada. El cliente debe enviar un mensaje primero.',
+          'La ventana de Messenger estÃ¡ cerrada. El cliente debe enviar un mensaje primero.',
         );
       }
       throw StateError(
         reason ??
             data['error']?.toString() ??
-            'Meta no permitió enviar el mensaje.',
+            'Meta no permitiÃ³ enviar el mensaje.',
       );
     }
     if (data is Map && data['ok'] == false) {
       throw StateError(
-        data['error']?.toString() ?? 'No se pudo enviar la confirmación.',
+        data['error']?.toString() ?? 'No se pudo enviar la confirmaciÃ³n.',
       );
     }
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
   Future<void> updateOrderDelivery({
@@ -578,7 +625,7 @@ class AppRepository {
     final data = response.data;
     if (data is Map && data['meta_permission_denied'] == true) {
       throw StateError(
-        'Meta aún no permite leer Messenger; se mostrarán mensajes recibidos por webhook o pruebas locales.',
+        'Meta aÃºn no permite leer Messenger; se mostrarÃ¡n mensajes recibidos por webhook o pruebas locales.',
       );
     }
   }
@@ -637,7 +684,7 @@ class AppRepository {
     String deliveryNotes = '',
   }) async {
     final page = await selectedPage();
-    if (page == null) throw StateError('Selecciona una página primero.');
+    if (page == null) throw StateError('Selecciona una pÃ¡gina primero.');
     final conversation = await client
         .from('conversations')
         .select('*, customers(*)')
@@ -646,7 +693,7 @@ class AppRepository {
     final customerData = conversation['customers'] as Map<String, dynamic>?;
     if (customerData == null) {
       throw StateError(
-        'Esta conversación todavía no está vinculada a un cliente.',
+        'Esta conversaciÃ³n todavÃ­a no estÃ¡ vinculada a un cliente.',
       );
     }
     await createManualOrderItem(
@@ -719,6 +766,8 @@ class AppRepository {
         .order('position');
     final result = List<Map<String, dynamic>>.from(rows as List);
     result.removeWhere((row) {
+      final status = row['resolution_status'] as String? ?? '';
+      if (status == 'discarded' || status == 'ignored') return true;
       final orderItems = row['order_items'];
       return orderItems is List && orderItems.isNotEmpty;
     });
@@ -736,6 +785,22 @@ class AppRepository {
     return result;
   }
 
+  Future<void> discardRemainingClaimableItems(String publicationId) async {
+    final rows = await getClaimableAuctionItems();
+    final ids = rows
+        .where((item) {
+          final publication = item['publications'] as Map<String, dynamic>;
+          return publication['id'] == publicationId;
+        })
+        .map((item) => item['id'] as String)
+        .toList();
+    if (ids.isEmpty) return;
+    await client
+        .from('publication_items')
+        .update({'resolution_status': 'discarded'})
+        .inFilter('id', ids);
+  }
+
   Future<void> createOrderFromClaimedAuctionItems({
     required String conversationId,
     required List<Map<String, dynamic>> items,
@@ -747,9 +812,9 @@ class AppRepository {
     String locationHelpText = '',
     String deliveryNotes = '',
   }) async {
-    if (items.isEmpty) throw ArgumentError('Selecciona al menos un artículo.');
+    if (items.isEmpty) throw ArgumentError('Selecciona al menos un artÃ­culo.');
     final page = await selectedPage();
-    if (page == null) throw StateError('Selecciona una página primero.');
+    if (page == null) throw StateError('Selecciona una pÃ¡gina primero.');
     final conversation = await client
         .from('conversations')
         .select('*, customers(*)')
@@ -758,7 +823,7 @@ class AppRepository {
     final customerData = conversation['customers'] as Map<String, dynamic>?;
     if (customerData == null) {
       throw StateError(
-        'Esta conversación todavía no está vinculada a un cliente.',
+        'Esta conversaciÃ³n todavÃ­a no estÃ¡ vinculada a un cliente.',
       );
     }
     final customer = Customer.fromJson(customerData);
@@ -811,8 +876,67 @@ class AppRepository {
         'publication_item_id': item['id'] as String,
         'photo_storage_path': item['storage_path'] as String?,
         'source_label':
-            '${publication['title'] ?? 'Subasta'} · Artículo ${position + 1}',
+            '${publication['title'] ?? 'Subasta'} Â· ArtÃ­culo ${position + 1}',
         'price': price,
+      }, onConflict: 'publication_item_id');
+      await client
+          .from('publication_items')
+          .update({'resolution_status': 'winner'})
+          .eq('id', item['id'] as String);
+    }
+  }
+
+  Future<void> assignClaimedAuctionItemsToCustomer({
+    required String customerId,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    if (items.isEmpty) throw ArgumentError('Selecciona al menos un artÃ­culo.');
+    final page = await selectedPage();
+    if (page == null) throw StateError('Selecciona una pÃ¡gina primero.');
+    final customerRow = await client
+        .from('customers')
+        .select('*, delivery_locations(*)')
+        .eq('id', customerId)
+        .single();
+    final customer = Customer.fromJson(customerRow);
+    final existing = await client
+        .from('orders')
+        .select('id')
+        .eq('customer_id', customer.id)
+        .eq('payment_status', 'pending')
+        .eq('delivery_status', 'pending')
+        .maybeSingle();
+    String orderId;
+    if (existing == null) {
+      final row = await client
+          .from('orders')
+          .insert({
+            'owner_id': requireUser.id,
+            'page_id': page.id,
+            'customer_id': customer.id,
+            'delivery_location_id': customer.preferredDeliveryLocationId,
+            'delivery_mode': customer.preferredDeliveryMode,
+            'fixed_booth_name': customer.preferredFixedBoothName,
+            'delivery_zone': customer.preferredDeliveryZone,
+            'booth_number': customer.preferredBoothNumber,
+            'delivery_notes': customer.preferredDeliveryNotes,
+          })
+          .select('id')
+          .single();
+      orderId = row['id'] as String;
+    } else {
+      orderId = existing['id'] as String;
+    }
+    for (final item in items) {
+      final publication = item['publications'] as Map<String, dynamic>;
+      final position = item['position'] as int? ?? 0;
+      await client.from('order_items').upsert({
+        'order_id': orderId,
+        'publication_item_id': item['id'] as String,
+        'photo_storage_path': item['storage_path'] as String?,
+        'source_label':
+            '${publication['title'] ?? 'Subasta'} Â· ArtÃ­culo ${position + 1}',
+        'price': item['winning_amount'] as int? ?? 0,
       }, onConflict: 'publication_item_id');
       await client
           .from('publication_items')
@@ -874,7 +998,7 @@ class AppRepository {
       if (notes.trim().isNotEmpty) notes.trim(),
       if (helpText.trim().isNotEmpty) helpText.trim(),
     ];
-    return parts.isEmpty ? 'por confirmar' : parts.join(' · ');
+    return parts.isEmpty ? 'por confirmar' : parts.join(' Â· ');
   }
 
   Future<List<Map<String, dynamic>>> getAlerts() async =>

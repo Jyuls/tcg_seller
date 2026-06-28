@@ -2,7 +2,10 @@ class BidRules {
   const BidRules._();
 
   static int? parseAmount(String message) {
-    final match = RegExp(r'^\s*\$?\s*([0-9]+)\s*$').firstMatch(message);
+    final match = RegExp(
+      r'^\s*\$?\s*([0-9]+)\s*(?:pesos?|mxn)?\s*$',
+      caseSensitive: false,
+    ).firstMatch(message);
     return match == null ? null : int.tryParse(match.group(1)!);
   }
 

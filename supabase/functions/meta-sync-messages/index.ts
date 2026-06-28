@@ -5,6 +5,7 @@ import {
   graph,
   pageToken,
   response,
+  verifyCron,
 } from '../_shared/core.ts'
 
 function pagePathFromUrl(url: string) {
@@ -41,14 +42,16 @@ function newestIncoming(messages: Record<string, any>[], pageMetaId: string) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   try {
-    const user = await authenticatedUser(req)
     const client = adminClient()
-    const { data: pages } = await client
+    const cron = await verifyCron(req, client)
+    const user = cron ? null : await authenticatedUser(req)
+    let pagesQuery = client
       .from('facebook_pages')
       .select()
-      .eq('owner_id', user.id)
       .eq('is_selected', true)
       .eq('access_status', 'active')
+    if (user) pagesQuery = pagesQuery.eq('owner_id', user.id)
+    const { data: pages } = await pagesQuery
     let syncedConversations = 0
     let syncedMessages = 0
 
@@ -85,7 +88,7 @@ Deno.serve(async (req) => {
           const { data: customer, error: customerError } = await client
             .from('customers')
             .insert({
-              owner_id: user.id,
+              owner_id: page.owner_id,
               page_id: page.id,
               display_name: displayName,
               is_provisional: false,
@@ -127,8 +130,8 @@ Deno.serve(async (req) => {
           .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0]
         const { data: conversation, error: conversationError } = await client
           .from('conversations')
-          .upsert({
-            owner_id: user.id,
+            .upsert({
+            owner_id: page.owner_id,
             page_id: page.id,
             customer_id: identity.customer_id,
             messenger_psid: psid,

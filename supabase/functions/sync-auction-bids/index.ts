@@ -10,7 +10,7 @@ import {
 type Client = ReturnType<typeof adminClient>
 
 function validAmount(message: string) {
-  const match = message.match(/^\s*\$?\s*([0-9]+)\s*$/)
+  const match = message.match(/^\s*\$?\s*([0-9]+)\s*(?:pesos?|mxn)?\s*$/i)
   if (!match) return null
   const amount = Number(match[1])
   return Number.isSafeInteger(amount) ? amount : null
